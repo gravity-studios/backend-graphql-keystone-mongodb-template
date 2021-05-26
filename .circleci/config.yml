@@ -1,0 +1,214 @@
+version: 2.1
+orbs:
+  aws-cli: circleci/aws-cli@0.1.20
+
+build_image: &build_image
+  docker:
+    - image: circleci/node:12.10.0
+
+attach_workspace: &attach_workspace
+  attach_workspace:
+    at: .
+
+persist_build_to_workspace: &persist_build_to_workspace
+  persist_to_workspace:
+    root: .
+    paths:
+      - node_modules
+      - build
+
+jobs:
+  deploy-api-development:
+    working_directory: ~/repo/backend
+    <<: *build_image
+    steps:
+      - checkout:
+          path: ~/repo
+      - <<: *attach_workspace
+      - setup_remote_docker:
+          version: 18.09.3
+      - run:
+          name: "Setting up AWS CLI"
+          command: |
+            if ! ../.devops/check-changes.sh backend; then echo "No backend changes detected!" exit 0; fi
+            sudo apt-get update
+            sudo apt-get install -y python-dev python-pip
+            sudo pip install setuptools
+            sudo pip install --upgrade cffi
+            sudo pip install awscli --upgrade
+      - run: AWS_ACCESS_KEY_ID=$DEV_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$DEV_AWS_SECRET_ACCESS_KEY aws ecr get-login --no-include-email --region $DEV_AWS_REGION >> login-docker.sh
+      - run: chmod +x login-docker.sh
+      - run: AWS_ACCESS_KEY_ID=$DEV_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$DEV_AWS_SECRET_ACCESS_KEY ./login-docker.sh
+      - run: |
+          if ! ../.devops/check-changes.sh backend; then echo "No backend changes detected!" exit 0; fi
+          IMAGE_API=$DEV_AWS_ECR/PROJECT_NAME-api:dev-$CIRCLE_BUILD_NUM
+          LATEST_IMAGE_API=$DEV_AWS_ECR/PROJECT_NAME-api:dev-latest
+          docker-compose up --detach redis
+          docker build --build-arg COOKIE_SECRET=$DEV_COOKIE_SECRET --build-arg GOOGLE_OAUTH_CLIENT_ID=$DEV_GOOGLE_OAUTH_CLIENT_ID --build-arg GOOGLE_OAUTH_CLIENT_SECRET=$DEV_GOOGLE_OAUTH_CLIENT_SECRET --build-arg DATABASE_URL=$DEV_DATABASE_URL --network=host -t $LATEST_IMAGE_API .
+          docker push $LATEST_IMAGE_API
+          docker tag $LATEST_IMAGE_API $IMAGE_API
+          docker push $IMAGE_API
+          AWS_ACCESS_KEY_ID=$DEV_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$DEV_AWS_SECRET_ACCESS_KEY aws ecs update-service --region $DEV_AWS_REGION --cluster PROJECT_NAME-api-development --service PROJECT_NAME-api-development --force-new-deployment
+  deploy-web-development:
+    working_directory: ~/repo/frontend
+    <<: *build_image
+    steps:
+      - checkout:
+          path: ~/repo
+      - <<: *attach_workspace
+      - setup_remote_docker:
+          version: 18.09.3
+      - run: |
+          sudo apt-get update
+      - run: npm install
+      - run: REACT_APP_GOOGLE_AUTH=$DEV_REACT_APP_GOOGLE_AUTH REACT_APP_API_URL=$DEV_REACT_APP_API_URL REACT_APP_GTM_ID=$DEV_REACT_APP_GTM_ID REACT_APP_SENTRY_DSN=$DEV_REACT_APP_SENTRY_DSN npm run build
+      - run: |
+          sudo apt-get install -y python-dev python-pip
+          sudo pip install setuptools
+          sudo pip install --upgrade cffi
+          sudo pip install awscli --upgrade
+      - run: |
+          AWS_ACCESS_KEY_ID=$DEV_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$DEV_AWS_SECRET_ACCESS_KEY aws s3 sync ./build s3://dev.PROJECT_NAME.TOP_LEVEL_DOMAIN --delete
+          AWS_ACCESS_KEY_ID=$DEV_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$DEV_AWS_SECRET_ACCESS_KEY aws cloudfront create-invalidation --distribution-id $DEV_AWS_CF_DISTRIBUTION_ID --paths "/*"
+
+  deploy-api-staging:
+    working_directory: ~/repo/backend
+    <<: *build_image
+    steps:
+      - checkout:
+          path: ~/repo
+      - <<: *attach_workspace
+      - setup_remote_docker:
+          version: 18.09.3
+      - run:
+          name: "Setting up AWS CLI"
+          command: |
+            if ! ../.devops/check-changes.sh backend; then echo "No backend changes detected!" exit 0; fi
+            sudo apt-get update
+            sudo apt-get install -y python-dev python-pip
+            sudo pip install setuptools
+            sudo pip install --upgrade cffi
+            sudo pip install awscli --upgrade
+      - run: AWS_ACCESS_KEY_ID=$STAGING_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$STAGING_AWS_SECRET_ACCESS_KEY aws ecr get-login --no-include-email --region $STAGING_AWS_REGION >> login-docker.sh
+      - run: chmod +x login-docker.sh
+      - run: AWS_ACCESS_KEY_ID=$STAGING_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$STAGING_AWS_SECRET_ACCESS_KEY ./login-docker.sh
+      - run: |
+          if ! ../.devops/check-changes.sh backend; then echo "No backend changes detected!" exit 0; fi
+          IMAGE_API=$STAGING_AWS_ECR/PROJECT_NAME-api:staging-$CIRCLE_BUILD_NUM
+          LATEST_IMAGE_API=$STAGING_AWS_ECR/PROJECT_NAME-api:staging-latest
+          docker-compose up --detach redis
+          docker build --build-arg COOKIE_SECRET=$STAGING_COOKIE_SECRET --build-arg GOOGLE_OAUTH_CLIENT_ID=$STAGING_GOOGLE_OAUTH_CLIENT_ID --build-arg GOOGLE_OAUTH_CLIENT_SECRET=$STAGING_GOOGLE_OAUTH_CLIENT_SECRET --build-arg DATABASE_URL=$STAGING_DATABASE_URL --network=host -t $LATEST_IMAGE_API .
+          docker push $LATEST_IMAGE_API
+          docker tag $LATEST_IMAGE_API $IMAGE_API
+          docker push $IMAGE_API
+          AWS_ACCESS_KEY_ID=$STAGING_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$STAGING_AWS_SECRET_ACCESS_KEY aws ecs update-service --region $STAGING_AWS_REGION --cluster PROJECT_NAME-api-staging --service PROJECT_NAME-api-staging --force-new-deployment
+  deploy-web-staging:
+    working_directory: ~/repo/frontend
+    <<: *build_image
+    steps:
+      - checkout:
+          path: ~/repo
+      - <<: *attach_workspace
+      - setup_remote_docker:
+          version: 18.09.3
+      - run: |
+          sudo apt-get update
+      - run: npm install
+      - run: REACT_APP_GOOGLE_AUTH=$STAGING_REACT_APP_GOOGLE_AUTH REACT_APP_API_URL=$STAGING_REACT_APP_API_URL REACT_APP_GTM_ID=$STAGING_REACT_APP_GTM_ID REACT_APP_SENTRY_DSN=$STAGING_REACT_APP_SENTRY_DSN npm run build
+      - run: |
+          sudo apt-get install -y python-dev python-pip
+          sudo pip install setuptools
+          sudo pip install --upgrade cffi
+          sudo pip install awscli --upgrade
+      - run: |
+          AWS_ACCESS_KEY_ID=$STAGING_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$STAGING_AWS_SECRET_ACCESS_KEY aws s3 sync ./build s3://staging.PROJECT_NAME.TOP_LEVEL_DOMAIN --delete
+          AWS_ACCESS_KEY_ID=$STAGING_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$STAGING_AWS_SECRET_ACCESS_KEY aws cloudfront create-invalidation --distribution-id $STAGING_AWS_CF_DISTRIBUTION_ID --paths "/*"
+
+  deploy-api-production:
+    working_directory: ~/repo/backend
+    <<: *build_image
+    steps:
+      - checkout:
+          path: ~/repo
+      - <<: *attach_workspace
+      - setup_remote_docker:
+          version: 18.09.3
+      - run:
+          name: "Setting up AWS CLI"
+          command: |
+            if ! ../.devops/check-changes.sh backend; then echo "No backend changes detected!" exit 0; fi
+            sudo apt-get update
+            sudo apt-get install -y python-dev python-pip
+            sudo pip install setuptools
+            sudo pip install --upgrade cffi
+            sudo pip install awscli --upgrade
+      - run: AWS_ACCESS_KEY_ID=$PROD_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$PROD_AWS_SECRET_ACCESS_KEY aws ecr get-login --no-include-email --region $PROD_AWS_REGION >> login-docker.sh
+      - run: chmod +x login-docker.sh
+      - run: AWS_ACCESS_KEY_ID=$PROD_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$PROD_AWS_SECRET_ACCESS_KEY ./login-docker.sh
+      - run: |
+          if ! ../.devops/check-changes.sh backend; then echo "No backend changes detected!" exit 0; fi
+          IMAGE_API=$PROD_AWS_ECR/PROJECT_NAME-api:prod-$CIRCLE_BUILD_NUM
+          LATEST_IMAGE_API=$PROD_AWS_ECR/PROJECT_NAME-api:prod-latest
+          docker-compose up --detach redis
+          docker build --build-arg COOKIE_SECRET=$PROD_COOKIE_SECRET --build-arg GOOGLE_OAUTH_CLIENT_ID=$PROD_GOOGLE_OAUTH_CLIENT_ID --build-arg GOOGLE_OAUTH_CLIENT_SECRET=$PROD_GOOGLE_OAUTH_CLIENT_SECRET --build-arg DATABASE_URL=$PROD_DATABASE_URL --network=host -t $LATEST_IMAGE_API .
+          docker push $LATEST_IMAGE_API
+          docker tag $LATEST_IMAGE_API $IMAGE_API
+          docker push $IMAGE_API
+          AWS_ACCESS_KEY_ID=$PROD_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$PROD_AWS_SECRET_ACCESS_KEY aws ecs update-service --region $PROD_AWS_REGION --cluster PROJECT_NAME-api-prod --service PROJECT_NAME-api-prod --force-new-deployment
+  deploy-web-production:
+    working_directory: ~/repo/frontend
+    <<: *build_image
+    steps:
+      - checkout:
+          path: ~/repo
+      - <<: *attach_workspace
+      - setup_remote_docker:
+          version: 18.09.3
+      - run: |
+          sudo apt-get update
+      - run: npm install
+      - run: REACT_APP_GOOGLE_AUTH=$PROD_REACT_APP_GOOGLE_AUTH REACT_APP_API_URL=$PROD_REACT_APP_API_URL REACT_APP_GTM_ID=$PROD_REACT_APP_GTM_ID REACT_APP_SENTRY_DSN=$PROD_REACT_APP_SENTRY_DSN npm run build
+      - run: |
+          sudo apt-get install -y python-dev python-pip
+          sudo pip install setuptools
+          sudo pip install --upgrade cffi
+          sudo pip install awscli --upgrade
+      - run: |
+          AWS_ACCESS_KEY_ID=$PROD_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$PROD_AWS_SECRET_ACCESS_KEY aws s3 sync ./build s3://prod.PROJECT_NAME.TOP_LEVEL_DOMAIN --delete
+          AWS_ACCESS_KEY_ID=$PROD_AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$PROD_AWS_SECRET_ACCESS_KEY aws cloudfront create-invalidation --distribution-id $PROD_AWS_CF_DISTRIBUTION_ID --paths "/*"
+
+workflows:
+  version: 2
+  main:
+    jobs:
+      - deploy-web-development:
+          filters:
+            branches:
+              only: 
+                - development
+                - /circleci\/.*/
+      - deploy-api-development:
+          filters:
+            branches:
+              only: 
+                - development
+      - deploy-web-staging:
+          filters:
+            branches:
+              only: 
+                - staging
+      - deploy-api-staging:
+          filters:
+            branches:
+              only: 
+                - staging
+      - deploy-web-production:
+          filters:
+            branches:
+              only:
+                - production
+      - deploy-api-production:
+          filters:
+            branches:
+              only:
+                - production

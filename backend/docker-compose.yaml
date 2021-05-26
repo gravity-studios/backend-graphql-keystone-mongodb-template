@@ -1,0 +1,94 @@
+version: '3.7'
+networks:
+    app-tier:
+        driver: bridge
+services:
+    devbox:
+        container_name: PROJECT_NAME-dev
+        # profiles: ["dev"]
+        build:
+            context: .
+            dockerfile: devbox.dockerfile
+        volumes:
+            - .:/home/node/app
+            - node_modules:/home/node/app/node_modules
+        environment:
+            - DATABASE_URL=mongodb://mongodb:27017
+        ports:
+            - '3000:3000'
+        command: ['yarn', 'dev']
+        links:
+            - mongodb
+            - redis
+        networks:
+            - app-tier
+    production:
+        container_name: PROJECT_NAME-prod
+        # profiles: ["prod"]
+        build:
+            context: .
+            dockerfile: Dockerfile
+        volumes:
+            - .:/app
+        environment:
+            - DATABASE_URL=mongodb://mongodb:27017
+        ports:
+            - '3000:3000'
+        command: ['./dumb-init', 'yarn', 'start']
+        links:
+            - mongodb
+            - redis
+        networks:
+            - app-tier
+    mongodb:
+        image: 'mongo:latest'
+        container_name: 'mongodb'
+        ports:
+            - 27017:27017
+        volumes:
+            - /data/db
+        networks:
+            - app-tier
+    redis:
+        image: 'redis:alpine'
+        container_name: 'redis'
+        ports:
+            - 6379:6379
+        volumes:
+            - /data/redis
+        networks:
+            - app-tier
+    devnginx:
+        build:
+            context: ./nginx
+            dockerfile: devbox.dockerfile
+        # profiles: ["dev"]
+        links:
+            - devbox
+        networks:
+            - app-tier
+        ports:
+            - '8080:80'
+    nginx:
+        build:
+            context: ./nginx
+        # profiles: ["prod"]
+        links:
+            - production
+        networks:
+            - app-tier
+        ports:
+            - '8080:80'
+    arena:
+        image: 'mixmaxhq/arena:latest'
+        container_name: 'arena'
+        volumes:
+            - ./arena.json:/opt/arena/index.json
+        ports:
+            - 4567:4567
+        networks:
+            - app-tier
+volumes:
+    data:
+    node_modules:
+    arena.json:

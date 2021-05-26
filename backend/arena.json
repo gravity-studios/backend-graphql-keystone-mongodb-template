@@ -1,0 +1,12 @@
+{
+    "queues": [
+        {
+            "name": "tasks",
+            "hostId": "Tasks Queue",
+            "type": "bee",
+            "redis": {
+                "url": "redis://redis:6379"
+            }
+        }
+    ]
+}

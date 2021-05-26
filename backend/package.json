@@ -1,0 +1,50 @@
+{
+  "name": "PROJECT_NAME-backend",
+  "private": true,
+  "version": "1.0.0",
+  "author": "Gravity Studios",
+  "license": "MIT",
+  "engines": {
+    "node": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development DISABLE_LOGGING=true ENABLE_DEV_FEATURES=false keystone dev",
+    "build": "cross-env NODE_ENV=production keystone build",
+    "start": "cross-env NODE_ENV=production keystone start",
+    "create-tables": "cross-env CREATE_TABLES=true keystone create-tables",
+    "docker-dev": "docker-compose up devbox mongodb devnginx",
+    "docker-prod": "docker-compose up production mongodb nginx",
+    "docker-build": "docker-compose build"
+  },
+  "dependencies": {
+    "@keystonejs/adapter-mongoose": "^11.2.0",
+    "@keystonejs/app-admin-ui": "^7.5.0",
+    "@keystonejs/app-graphql": "^6.3.0",
+    "@keystonejs/auth-passport": "^6.1.0",
+    "@keystonejs/auth-password": "^6.1.0",
+    "@keystonejs/fields": "^22.1.0",
+    "@keystonejs/keystone": "^19.3.0",
+    "@keystonejs/server-side-graphql-client": "^2.1.0",
+    "async": "^3.2.0",
+    "aws-sdk": "^2.887.0",
+    "base-64": "^1.0.0",
+    "bee-queue": "^1.3.1",
+    "connect-mongo": "^4.3.1",
+    "cross-env": "^7.0.3",
+    "dotenv": "^8.2.0",
+    "node-fetch": "^2.6.1",
+    "uuid": "^8.3.2",
+    "winston": "^3.3.3"
+  },
+  "devDependencies": {
+    "eslint": "^7.2.0",
+    "eslint-config-airbnb": "18.2.1",
+    "eslint-config-prettier": "^7.2.0",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-jsx-a11y": "^6.4.1",
+    "eslint-plugin-prettier": "^3.3.1",
+    "eslint-plugin-react": "^7.21.5",
+    "eslint-plugin-react-hooks": "^1.7.0",
+    "prettier": "^2.2.1"
+  }
+}
